@@ -29,19 +29,9 @@
 
 RAW = 0
 LIST = 1
-JSON = 2
-BOOL = 3
+BOOL = 2
 
 COMMANDS = [
-    ("nodes", LIST),
-    ("active", LIST),
-    ("info", JSON),
-    ("activate", BOOL),
-    ("deactivate", BOOL),
-    ("tokens", LIST),
-    ("access", JSON),
-    ("grant", BOOL),
-    ("revoke", BOOL),
     ("run", BOOL),
     ("members", LIST),
     ("in", RAW),
@@ -59,7 +49,7 @@ def _exec(command, *args, **kwargs):
     cmd_args = ["hibera", command]
     for (name, value) in kwargs.items():
         cmd_args.append("-%s" % name)
-        if isinstance(value, list):
+        if isinstance(value, type([])):
             cmd_args.append(",".join(value))
         else:
             cmd_args.append(str(value))
@@ -69,20 +59,25 @@ def _exec(command, *args, **kwargs):
         if isinstance(kwargs.get(name), file):
             return kwargs.get(name)
         else:
-            return subprocess.PIPE
+            return None
     def _find_data(name):
         if not isinstance(kwargs.get(name), file):
             return kwargs.get(name)
         else:
             return None
 
+    # Print the command being executed.
+    import sys
+    sys.stderr.write("exec: %s\n" % " ".join(cmd_args))
+
+    # Execute the command.
     import subprocess
     proc = subprocess.Popen(
         cmd_args,
         close_fds=True,
-        stdin=_find_file("stdin"),
-        stdout=_find_file("stdout"),
-        stderr=_find_file("stderr"))
+        stdin=_find_file("stdin") or subprocess.PIPE,
+        stdout=_find_file("stdout") or subprocess.PIPE,
+        stderr=_find_file("stderr") or sys.stderr)
 
     (stdout, stderr) = proc.communicate(_find_data("stdin"))
     if proc.returncode != 0:
@@ -98,14 +93,13 @@ for (command, data_type) in COMMANDS:
             elif data_type == LIST:
                 res = _exec(command, *args, **kwargs)
                 return [line for line in res.split("\n") if line]
-            elif data_type == JSON:
-                import json
-                return json.loads(_exec(command, *args, **kwargs))
             elif data_type == BOOL:
                 try:
                     _exec(command, *args, **kwargs)
                     return True
                 except:
+                    import traceback
+                    traceback.print_exc()
                     return False
         _fn.__name__ = command
         return _fn
