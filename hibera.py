@@ -30,19 +30,21 @@
 RAW = 0
 LIST = 1
 BOOL = 2
+INDEXED = 3
+REV = 128
 
 COMMANDS = [
     ("run", BOOL),
-    ("members", LIST),
-    ("in", RAW),
-    ("out", RAW),
+    ("members", INDEXED|REV),
+    ("in", RAW|REV),
+    ("out", RAW|REV),
     ("list", LIST),
-    ("get", RAW),
-    ("set", BOOL),
-    ("remove", BOOL),
+    ("get", RAW|REV),
+    ("set", BOOL|REV),
+    ("remove", BOOL|REV),
     ("sync", BOOL),
-    ("watch", BOOL),
-    ("fire", BOOL),
+    ("watch", BOOL|REV),
+    ("fire", BOOL|REV),
 ]
 
 def _exec(command, *args, **kwargs):
@@ -77,30 +79,38 @@ def _exec(command, *args, **kwargs):
         close_fds=True,
         stdin=_find_file("stdin") or subprocess.PIPE,
         stdout=_find_file("stdout") or subprocess.PIPE,
-        stderr=_find_file("stderr") or sys.stderr)
+        stderr=_find_file("stderr") or subprocess.PIPE)
 
     (stdout, stderr) = proc.communicate(_find_data("stdin"))
     if proc.returncode != 0:
         raise Exception(stderr)
     else:
-        return stdout
+        return (stdout, stderr)
 
-for (command, data_type) in COMMANDS:
-    def _gen_fn(command, data_type):
+for (command, type_info) in COMMANDS:
+    def _gen_fn(command, type_info):
         def _fn(*args, **kwargs):
+            data_type = type_info & (~REV)
+            with_rev = (type_info & REV != 0)
             if data_type == RAW:
-                return _exec(command, *args, **kwargs)
+                (rval, rev) = _exec(command, *args, **kwargs)
             elif data_type == LIST:
-                res = _exec(command, *args, **kwargs)
-                return [line for line in res.split("\n") if line]
+                (res, rev) = _exec(command, *args, **kwargs)
+                rval = [line for line in res.split("\n") if line]
+            elif data_type == INDEXED:
+                (res, rev) = _exec(command, *args, **kwargs)
+                rval = [line for line in res.split("\n") if line]
+                rval = [int(rval[0]), rval[1:]]
             elif data_type == BOOL:
                 try:
-                    _exec(command, *args, **kwargs)
-                    return True
+                    (_, rev) = _exec(command, *args, **kwargs)
+                    rval = True
                 except:
-                    import traceback
-                    traceback.print_exc()
-                    return False
+                    rval = False
+            if with_rev:
+                return (rval, int(rev))
+            else:
+                return rval
         _fn.__name__ = command
         return _fn
-    globals()[command] = _gen_fn(command, data_type)
+    globals()[command] = _gen_fn(command, type_info)
